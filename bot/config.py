@@ -24,8 +24,10 @@ UPLOAD_DIR = "bot/uploads"
 VECTORSTORE_DIR = "bot/vectorstore"
 DATABASE_PATH = "bot/database/studybot.db"
 
-MAX_FILE_SIZE_MB = 50
+# Telegram bots can only download files up to 20MB via Bot API
+# Files above this size will fail at the Telegram download step
+MAX_FILE_SIZE_MB = 20
 MAX_CHUNK_SIZE = 1500
 CHUNK_OVERLAP = 200
 
-SUPPORTED_EXTENSIONS = [".pdf"]
+SUPPORTED_EXTENSIONS = [".pdf", ".pptx", ".ppt", ".docx", ".doc", ".txt"]
