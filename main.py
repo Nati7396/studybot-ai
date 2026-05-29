@@ -27,6 +27,10 @@ from bot.config import TELEGRAM_BOT_TOKEN
 from bot.database.db import init_db
 from bot.handlers.start import start_handler, help_handler
 from bot.handlers.upload import upload_command, document_handler
+from bot.handlers.focus import (
+    focus_full_callback, focus_specific_callback,
+    focus_text_handler, focus_command
+)
 from bot.handlers.study import (
     status_handler, summary_handler, questions_handler, questions_count_callback,
     notes_handler, mockexam_handler, finalexam_handler,
@@ -34,7 +38,7 @@ from bot.handlers.study import (
     explain_handler, examstyle_handler, webapp_handler
 )
 from bot.handlers.quiz import (
-    quiz_handler, quiz_start_callback, quiz_answer_callback, quiz_retry_callback,
+    quiz_handler, quiz_start_callback, quiz_retry_callback,
     flashcards_handler, flashcard_start_callback, flashcard_callback
 )
 from bot.handlers.reset import reset_handler, reset_callback
@@ -54,6 +58,7 @@ def main():
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("help", help_handler))
     app.add_handler(CommandHandler("upload", upload_command))
+    app.add_handler(CommandHandler("focus", focus_command))
     app.add_handler(CommandHandler("status", status_handler))
     app.add_handler(CommandHandler("summary", summary_handler))
     app.add_handler(CommandHandler("questions", questions_handler))
@@ -72,8 +77,14 @@ def main():
 
     app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
 
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        focus_text_handler
+    ))
+
+    app.add_handler(CallbackQueryHandler(focus_full_callback, pattern="^focus_full$"))
+    app.add_handler(CallbackQueryHandler(focus_specific_callback, pattern="^focus_specific$"))
     app.add_handler(CallbackQueryHandler(quiz_start_callback, pattern="^quiz_start_"))
-    app.add_handler(CallbackQueryHandler(quiz_answer_callback, pattern="^qa_"))
     app.add_handler(CallbackQueryHandler(quiz_retry_callback, pattern="^quiz_retry$|^quiz_go_flash$"))
     app.add_handler(CallbackQueryHandler(flashcard_start_callback, pattern="^fc_start_"))
     app.add_handler(CallbackQueryHandler(flashcard_callback, pattern="^fc_"))
