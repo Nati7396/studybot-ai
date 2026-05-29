@@ -36,7 +36,7 @@ def _focus_label(focus: str) -> str:
 
 async def _check_docs(update: Update, user_id: int) -> bool:
     if not has_documents(user_id):
-        await update.message.reply_text(_no_docs_msg())
+        await update.effective_message.reply_text(_no_docs_msg())
         return False
     return True
 
@@ -84,7 +84,7 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if WEBAPP_URL:
         keyboard = [[InlineKeyboardButton("📖 Open Study App", web_app=WebAppInfo(url=WEBAPP_URL))]]
 
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"📡 *Bot Status*\n\n"
         f"*🤖 AI Keys ({ai_summary})*\n"
         f"{ai_status}\n\n"
@@ -107,7 +107,7 @@ async def summary_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🧠 Generating your summary...\n{_focus_label(focus)}\nThis may take a moment.",
         parse_mode="Markdown"
     )
@@ -116,9 +116,9 @@ async def summary_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_webapp_data(user_id, "summary", summary)
         await msg.delete()
         for part in chunk_message(summary):
-            await update.message.reply_text(part)
+            await update.effective_message.reply_text(part)
         if WEBAPP_URL:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "📖 View your full notes in the Study App:",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("Open Study App 📚", web_app=WebAppInfo(url=WEBAPP_URL))
@@ -147,7 +147,7 @@ async def questions_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("50 Questions", callback_data="gen_q_50"),
         ],
     ]
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"📝 *Practice Questions*\n\n"
         f"{_focus_label(focus)}\n\n"
         f"How many questions do you want?\n"
@@ -236,7 +236,7 @@ async def notes_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"📋 Creating your short notes...\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -245,9 +245,9 @@ async def notes_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_webapp_data(user_id, "notes", notes)
         await msg.delete()
         for part in chunk_message(notes):
-            await update.message.reply_text(part)
+            await update.effective_message.reply_text(part)
         if WEBAPP_URL:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "📖 View in dark mode Study App:",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("Open Study App 📚", web_app=WebAppInfo(url=WEBAPP_URL))
@@ -266,7 +266,7 @@ async def mockexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🧪 Generating your mock mid exam...\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -275,7 +275,7 @@ async def mockexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.delete()
 
         if questions:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"🧪 *MOCK MID EXAM*\n{_focus_label(focus)}\n\n"
                 f"*Section A — MCQ Questions*\n"
                 f"Tap your answer on each question below:",
@@ -303,7 +303,7 @@ async def mockexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             exam_text = generate_mock_exam(user_id, exam_type="mid", focus=focus)
             save_webapp_data(user_id, "mock_mid_exam", exam_text)
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"📝 *Section B & C — Written Questions*\n\n{exam_text[:3800]}",
                 parse_mode="Markdown"
             )
@@ -312,7 +312,7 @@ async def mockexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_webapp_data(user_id, "mock_mid_exam", exam_text)
             header = f"🧪 *MOCK MID EXAM*\n{_focus_label(focus)}\n\n"
             for part in chunk_message(header + exam_text):
-                await update.message.reply_text(part, parse_mode="Markdown")
+                await update.effective_message.reply_text(part, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Mock exam error: {e}")
@@ -327,7 +327,7 @@ async def finalexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🎓 Generating your mock final exam...\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -336,7 +336,7 @@ async def finalexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.delete()
 
         if questions:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"🎓 *MOCK FINAL EXAM*\n{_focus_label(focus)}\n\n"
                 f"*Section A — MCQ Questions*\n"
                 f"Tap your answer on each question below:",
@@ -364,7 +364,7 @@ async def finalexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             exam_text = generate_mock_exam(user_id, exam_type="final", focus=focus)
             save_webapp_data(user_id, "mock_final_exam", exam_text)
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"📝 *Section B, C & D — Written Questions*\n\n{exam_text[:3800]}",
                 parse_mode="Markdown"
             )
@@ -373,7 +373,7 @@ async def finalexam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_webapp_data(user_id, "mock_final_exam", exam_text)
             header = f"🎓 *MOCK FINAL EXAM*\n{_focus_label(focus)}\n\n"
             for part in chunk_message(header + exam_text):
-                await update.message.reply_text(part, parse_mode="Markdown")
+                await update.effective_message.reply_text(part, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Final exam error: {e}")
@@ -388,7 +388,7 @@ async def important_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🔍 Analyzing must-know concepts...\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -397,7 +397,7 @@ async def important_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_webapp_data(user_id, "important_concepts", result)
         await msg.delete()
         for part in chunk_message(result):
-            await update.message.reply_text(part)
+            await update.effective_message.reply_text(part)
     except Exception as e:
         logger.error(f"Important error: {e}")
         await msg.edit_text(f"❌ Error: {e}")
@@ -411,7 +411,7 @@ async def predict_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🔮 Predicting likely exam questions...\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -421,7 +421,7 @@ async def predict_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.delete()
         header = "🔮 *Exam Question Predictions*\n\n"
         for part in chunk_message(header + result):
-            await update.message.reply_text(part, parse_mode="Markdown")
+            await update.effective_message.reply_text(part, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Predict error: {e}")
         await msg.edit_text(f"❌ Error: {e}")
@@ -435,7 +435,7 @@ async def onenighter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🌙 Creating your one-night-before summary...\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -445,9 +445,9 @@ async def onenighter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await msg.delete()
         header = "🌙 *ONE NIGHT BEFORE EXAM — EMERGENCY GUIDE*\n\n"
         for part in chunk_message(header + result):
-            await update.message.reply_text(part, parse_mode="Markdown")
+            await update.effective_message.reply_text(part, parse_mode="Markdown")
         if WEBAPP_URL:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "📖 Read in dark mode Study App:",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("Open Study App 📚", web_app=WebAppInfo(url=WEBAPP_URL))
@@ -463,18 +463,18 @@ async def explain_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if not args:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "💡 Usage: /explain <concept>\n\nExample: /explain photosynthesis"
         )
         return
 
     concept = " ".join(args)
-    msg = await update.message.reply_text(f"💡 Explaining *{concept}*...", parse_mode="Markdown")
+    msg = await update.effective_message.reply_text(f"💡 Explaining *{concept}*...", parse_mode="Markdown")
     try:
         result = explain_concept(user_id, concept)
         await msg.delete()
         for part in chunk_message(result):
-            await update.message.reply_text(part)
+            await update.effective_message.reply_text(part)
     except Exception as e:
         logger.error(f"Explain error: {e}")
         await msg.edit_text(f"❌ Error: {e}")
@@ -488,7 +488,7 @@ async def examstyle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = get_session(user_id)
     focus = session.get("study_focus", "")
 
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         f"🎓 *Analyzing exam style...*\n{_focus_label(focus)}",
         parse_mode="Markdown"
     )
@@ -498,7 +498,7 @@ async def examstyle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.delete()
         header = "🎓 *EXAM-STYLE QUESTIONS*\n_(Based on your past exam patterns)_\n\n"
         for part in chunk_message(header + result):
-            await update.message.reply_text(part, parse_mode="Markdown")
+            await update.effective_message.reply_text(part, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Examstyle error: {e}")
         await msg.edit_text(f"❌ Error: {e}")
@@ -510,13 +510,13 @@ async def webapp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not WEBAPP_URL:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "⚠️ Study App URL not configured yet.\n\n"
             "Use /summary, /notes, or /questions to study right here in the chat!"
         )
         return
 
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         "📚 *Open your Study App*\n\nDark mode notes, questions & flashcards — all in one place.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
