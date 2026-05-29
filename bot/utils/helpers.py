@@ -26,7 +26,6 @@ def chunk_message(text: str, max_length: int = 4000) -> list[str]:
     """Split long messages for Telegram (4096 char limit)."""
     if len(text) <= max_length:
         return [text]
-
     parts = []
     while text:
         if len(text) <= max_length:
@@ -50,44 +49,62 @@ def escape_markdown(text: str) -> str:
 
 WELCOME_MESSAGE = """👋 Welcome to *StudyBot AI* — your personal exam coach!
 
-I help you study smarter from your own materials. Upload your PDFs and let's get to work.
+I help you study smarter from your own materials. Upload your files and let's get to work.
 
 📚 *What I can do:*
 • Summarize your study materials
-• Generate 100 practice questions
-• Create mock mid & final exams  
-• Make flashcards & quizzes
+• Generate practice questions & quizzes
+• Create mock mid & final exams
+• Make flashcards & short notes
 • Predict likely exam questions
-• Generate one-night-before summaries
+• One-night-before emergency summaries
+• Analyze your professor's exam style
 
-*Get started:* Send me a PDF file or use /upload
+📁 *Supported files:* PDF, PowerPoint, Word, TXT
 
-Use /help to see all commands."""
+*Get started:* Send me a file or use /upload
+Use /help to see all commands.
+
+─────────────────────
+🤖 Created by *@Nati7396*
+💬 Questions or feedback? Contact @Nati7396"""
 
 
-HELP_MESSAGE = """📖 *StudyBot AI — Commands*
+HELP_MESSAGE = """📖 *StudyBot AI — All Commands*
 
-*📤 Upload & Setup*
-/upload — Upload study materials (just send a PDF!)
-/status — View your uploaded materials
+*📤 Upload & Manage*
+/upload — How to upload study materials
+/status — Your uploaded files & AI key status
 /reset — Clear all your data and start fresh
 
 *📝 Study Tools*
 /summary — Comprehensive topic summary
-/questions — Generate 100 practice questions
+/questions — Generate practice questions
 /notes — Quick short notes for revision
+/important — Most important exam concepts
 
 *🧪 Exam Prep*
-/mockexam — Generate a mock mid exam
-/finalexam — Generate a mock final exam
+/mockexam — Mock mid exam paper
+/finalexam — Mock final exam paper
 /predict — Predict likely exam questions
-/important — Most important concepts
+/examstyle — Generate questions in your professor's exact style
 
 *⚡ Active Learning*
-/quiz — Start an interactive quiz
-/flashcards — Study with flashcards
+/quiz — Interactive scored quiz (10/20/30/50 Qs)
+/flashcards — Study with flip flashcards
 
-*🌙 Emergency*
-/onenighter — One-night-before-exam summary
+*🌙 Emergency Mode*
+/onenighter — One-night-before-exam survival guide
 
-💡 *Pro tip:* Upload your previous exam papers along with your notes — the bot will detect repeated topics and prioritize them!"""
+*🔍 Other*
+/explain [topic] — Explain any concept simply
+/app — Open the Study App
+
+─────────────────────
+✅ *Supported file types:* PDF, PPTX, DOCX, TXT
+📦 *Max file size:* 20MB (Telegram limit)
+
+💡 *Pro tip:* Upload your previous exam papers — the bot learns your professor's question style!
+
+─────────────────────
+🤖 Created by *@Nati7396* | Contact for support"""
