@@ -19,7 +19,7 @@ def _focus_label(focus: str) -> str:
 async def quiz_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not has_documents(user_id):
-        await update.message.reply_text(_no_docs_msg())
+        await update.effective_message.reply_text(_no_docs_msg())
         return
 
     session = get_session(user_id)
@@ -35,7 +35,7 @@ async def quiz_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("50 Questions", callback_data="quiz_start_50"),
         ],
     ]
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"🎯 *Quiz Mode*\n\n"
         f"{_focus_label(focus)}\n\n"
         f"How many questions do you want?\n"
@@ -191,7 +191,7 @@ async def flashcards_handler_from_callback(message, user_id: int):
 async def flashcards_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not has_documents(user_id):
-        await update.message.reply_text(_no_docs_msg())
+        await update.effective_message.reply_text(_no_docs_msg())
         return
 
     session = get_session(user_id)
@@ -204,7 +204,7 @@ async def flashcards_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             InlineKeyboardButton("50 Cards", callback_data="fc_start_50"),
         ]
     ]
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"🃏 *Flashcard Mode*\n\n{_focus_label(focus)}\n\nHow many cards do you want?",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
