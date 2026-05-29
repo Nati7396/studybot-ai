@@ -74,7 +74,8 @@ HELP_MESSAGE = """📖 *StudyBot AI — All Commands*
 
 *📤 Upload & Manage*
 /upload — How to upload study materials
-/status — Your uploaded files & AI key status
+/focus — Set chapter/section focus for all commands
+/status — Your uploaded files, AI key status & current focus
 /reset — Clear all your data and start fresh
 
 *📝 Study Tools*
