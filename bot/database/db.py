@@ -2,7 +2,6 @@ import os
 import sqlite3
 import json
 import logging
-from datetime import datetime
 from bot.config import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
@@ -47,9 +46,17 @@ def init_db():
             flashcard_deck TEXT,
             flashcard_index INTEGER DEFAULT 0,
             mode TEXT DEFAULT 'idle',
+            study_focus TEXT DEFAULT '',
             updated_at TEXT DEFAULT (datetime('now'))
         );
     """)
+
+    try:
+        cursor.execute("ALTER TABLE sessions ADD COLUMN study_focus TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
     logger.info("Database initialized.")
@@ -103,21 +110,31 @@ def get_session(user_id: int) -> dict:
         d = dict(row)
         d["quiz_questions"] = json.loads(d["quiz_questions"]) if d["quiz_questions"] else []
         d["flashcard_deck"] = json.loads(d["flashcard_deck"]) if d["flashcard_deck"] else []
+        d["study_focus"] = d.get("study_focus") or ""
         return d
-    return {"user_id": user_id, "quiz_questions": [], "quiz_index": 0, "flashcard_deck": [], "flashcard_index": 0, "mode": "idle"}
+    return {
+        "user_id": user_id,
+        "quiz_questions": [],
+        "quiz_index": 0,
+        "flashcard_deck": [],
+        "flashcard_index": 0,
+        "mode": "idle",
+        "study_focus": ""
+    }
 
 
 def save_session(user_id: int, data: dict):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO sessions (user_id, quiz_questions, quiz_index, flashcard_deck, flashcard_index, mode, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO sessions (user_id, quiz_questions, quiz_index, flashcard_deck, flashcard_index, mode, study_focus, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(user_id) DO UPDATE SET
             quiz_questions = excluded.quiz_questions,
             quiz_index = excluded.quiz_index,
             flashcard_deck = excluded.flashcard_deck,
             flashcard_index = excluded.flashcard_index,
             mode = excluded.mode,
+            study_focus = excluded.study_focus,
             updated_at = datetime('now')
     """, (
         user_id,
@@ -125,7 +142,8 @@ def save_session(user_id: int, data: dict):
         data.get("quiz_index", 0),
         json.dumps(data.get("flashcard_deck", [])),
         data.get("flashcard_index", 0),
-        data.get("mode", "idle")
+        data.get("mode", "idle"),
+        data.get("study_focus", "")
     ))
     conn.commit()
     conn.close()
