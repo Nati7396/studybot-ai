@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Poll
 from telegram.ext import ContextTypes
 from bot.services.vector_service import has_documents
 from bot.services.ai_service import generate_quiz_questions, generate_flashcards
@@ -12,11 +12,18 @@ def _no_docs_msg():
     return "📭 No study materials! Upload PDFs first."
 
 
+def _focus_label(focus: str) -> str:
+    return f"🎯 Focus: {focus}" if focus else "📚 Full Module"
+
+
 async def quiz_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not has_documents(user_id):
         await update.message.reply_text(_no_docs_msg())
         return
+
+    session = get_session(user_id)
+    focus = session.get("study_focus", "")
 
     keyboard = [
         [
@@ -29,7 +36,11 @@ async def quiz_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     ]
     await update.message.reply_text(
-        "🎯 *Quiz Mode*\n\nHow many questions do you want?\n\nYou'll be graded at the end!",
+        f"🎯 *Quiz Mode*\n\n"
+        f"{_focus_label(focus)}\n\n"
+        f"How many questions do you want?\n"
+        f"Each question will appear as a Telegram quiz — tap your answer to see if you're right!\n\n"
+        f"Use /focus to change the chapter scope.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -41,142 +52,88 @@ async def quiz_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     count = int(query.data.split("_")[-1])
 
+    session = get_session(user_id)
+    focus = session.get("study_focus", "")
+
     await query.edit_message_text(
-        f"⏳ Generating {count} questions from your materials...\nThis takes about 20-40 seconds!"
+        f"⏳ Generating {count} quiz questions...\n"
+        f"{_focus_label(focus)}\n\n"
+        f"This takes about 20-40 seconds — sit tight!"
     )
 
     try:
-        questions = generate_quiz_questions(user_id, count=count)
+        questions = generate_quiz_questions(user_id, count=count, focus=focus)
         if not questions:
             await query.edit_message_text("❌ Couldn't generate questions. Try uploading more content.")
             return
 
-        session = get_session(user_id)
-        session["quiz_questions"] = questions
-        session["quiz_index"] = 0
-        session["quiz_score"] = 0
-        session["quiz_total"] = len(questions)
-        session["mode"] = "quiz"
-        save_session(user_id, session)
-
         await query.edit_message_text(
-            f"🎯 *Quiz Starting!*\n\n"
-            f"📋 {len(questions)} questions\n"
-            f"📚 Based on your uploaded materials\n\n"
-            f"Answer each question — you'll see your score at the end!\n\n"
-            f"Good luck! 🍀",
+            f"🎯 *{len(questions)} Quiz Questions Ready!*\n\n"
+            f"{_focus_label(focus)}\n\n"
+            f"Sending them now — tap your answer on each question!\n"
+            f"Telegram will show you instantly if you're right ✅ or wrong ❌",
             parse_mode="Markdown"
         )
-        await _send_question(query.message, user_id, 0, questions)
+
+        await _send_quiz_polls(query.message, context, user_id, questions)
 
     except Exception as e:
         logger.error(f"Quiz start error: {e}")
         await query.edit_message_text(f"❌ Error starting quiz: {e}")
 
 
-async def _send_question(message, user_id: int, index: int, questions: list):
-    q = questions[index]
-    total = len(questions)
+async def _send_quiz_polls(message, context: ContextTypes.DEFAULT_TYPE, user_id: int, questions: list):
+    """Send each MCQ question as a native Telegram quiz poll."""
+    chat_id = message.chat_id
+    sent = 0
 
-    session = get_session(user_id)
-    score = session.get("quiz_score", 0)
+    for i, q in enumerate(questions):
+        try:
+            question_text = q.get("question", "")
+            if not question_text:
+                continue
 
-    text = (
-        f"❓ *Question {index + 1} of {total}*\n"
-        f"✅ Score so far: {score}/{index}\n\n"
-        f"*{q['question']}*\n\n"
-        f"🅐 {q['a']}\n"
-        f"🅑 {q['b']}\n"
-        f"🅒 {q['c']}\n"
-        f"🅓 {q['d']}"
-    )
+            options = [
+                q.get("a", "Option A"),
+                q.get("b", "Option B"),
+                q.get("c", "Option C"),
+                q.get("d", "Option D"),
+            ]
 
-    keyboard = [[
-        InlineKeyboardButton("A", callback_data=f"qa_A_{index}"),
-        InlineKeyboardButton("B", callback_data=f"qa_B_{index}"),
-        InlineKeyboardButton("C", callback_data=f"qa_C_{index}"),
-        InlineKeyboardButton("D", callback_data=f"qa_D_{index}"),
-    ]]
-    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            answer_map = {"A": 0, "B": 1, "C": 2, "D": 3}
+            correct_idx = answer_map.get(q.get("answer", "A").upper(), 0)
 
+            explanation = q.get("explanation", "") or ""
 
-async def quiz_answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+            question_text = question_text[:300]
+            options = [o[:100] for o in options]
+            explanation = explanation[:200] if explanation else None
 
-    user_id = query.from_user.id
-    parts = query.data.split("_")
-    selected = parts[1]
-    index = int(parts[2])
+            await context.bot.send_poll(
+                chat_id=chat_id,
+                question=f"Q{i+1}. {question_text}"[:300],
+                options=options,
+                type=Poll.QUIZ,
+                correct_option_id=correct_idx,
+                explanation=explanation,
+                is_anonymous=False,
+                protect_content=False,
+            )
+            sent += 1
 
-    session = get_session(user_id)
-    questions = session.get("quiz_questions", [])
+        except Exception as e:
+            logger.error(f"Error sending poll Q{i+1}: {e}")
+            continue
 
-    if index >= len(questions):
-        await query.edit_message_text("⚠️ Session expired. Start a new /quiz")
-        return
-
-    q = questions[index]
-    correct = q["answer"]
-    is_correct = selected == correct
-    total = len(questions)
-    next_index = index + 1
-
-    if is_correct:
-        session["quiz_score"] = session.get("quiz_score", 0) + 1
-
-    save_session(user_id, session)
-    score = session["quiz_score"]
-
-    option_labels = {"A": q["a"], "B": q["b"], "C": q["c"], "D": q["d"]}
-
-    if is_correct:
-        result = f"✅ *Correct!* Well done!\n\n"
-    else:
-        result = (
-            f"❌ *Wrong!*\n\n"
-            f"Your answer: {selected}) {option_labels[selected]}\n"
-            f"✅ Correct answer: {correct}) {option_labels[correct]}\n\n"
-        )
-
-    if q.get("explanation"):
-        result += f"💡 *Why:* {q['explanation']}\n\n"
-
-    if next_index >= total:
-        pct = round((score / total) * 100)
-        if pct >= 90:
-            grade = "🏆 Outstanding!"
-        elif pct >= 75:
-            grade = "🌟 Great job!"
-        elif pct >= 60:
-            grade = "👍 Good effort!"
-        elif pct >= 40:
-            grade = "📚 Keep studying!"
-        else:
-            grade = "💪 You'll get it next time!"
-
-        result += f"📊 *Final Score: {score}/{total} ({pct}%)*\n{grade}"
-        await query.edit_message_text(result, parse_mode="Markdown")
-
-        session["mode"] = "idle"
-        session["quiz_score"] = 0
-        session["quiz_index"] = 0
-        save_session(user_id, session)
-
-        keyboard = [[
-            InlineKeyboardButton("🔁 Try Again", callback_data="quiz_retry"),
-            InlineKeyboardButton("🃏 Flashcards", callback_data="quiz_go_flash"),
-        ]]
-        await query.message.reply_text(
-            "What's next?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+    if sent > 0:
+        await message.reply_text(
+            f"✅ *{sent} quiz questions sent above!*\n\n"
+            f"Tap any answer to see if you're right.\n"
+            f"Use /quiz to try again or /focus to change chapters.",
+            parse_mode="Markdown"
         )
     else:
-        result += f"➡️ Question {next_index + 1} coming up..."
-        await query.edit_message_text(result, parse_mode="Markdown")
-        session["quiz_index"] = next_index
-        save_session(user_id, session)
-        await _send_question(query.message, user_id, next_index, questions)
+        await message.reply_text("❌ Couldn't send quiz polls. Please try again.")
 
 
 async def quiz_retry_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,11 +168,12 @@ async def flashcards_handler_from_callback(message, user_id: int):
         return
     msg = await message.reply_text("🃏 Generating flashcards...")
     try:
-        cards = generate_flashcards(user_id, count=20)
+        session = get_session(user_id)
+        focus = session.get("study_focus", "")
+        cards = generate_flashcards(user_id, count=20, focus=focus)
         if not cards:
             await msg.edit_text("❌ Couldn't generate flashcards.")
             return
-        session = get_session(user_id)
         session["flashcard_deck"] = cards
         session["flashcard_index"] = 0
         session["mode"] = "flashcards"
@@ -236,6 +194,9 @@ async def flashcards_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(_no_docs_msg())
         return
 
+    session = get_session(user_id)
+    focus = session.get("study_focus", "")
+
     keyboard = [
         [
             InlineKeyboardButton("20 Cards", callback_data="fc_start_20"),
@@ -244,7 +205,7 @@ async def flashcards_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
     ]
     await update.message.reply_text(
-        "🃏 *Flashcard Mode*\n\nHow many cards do you want?",
+        f"🃏 *Flashcard Mode*\n\n{_focus_label(focus)}\n\nHow many cards do you want?",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -258,11 +219,12 @@ async def flashcard_start_callback(update: Update, context: ContextTypes.DEFAULT
 
     await query.edit_message_text(f"⏳ Generating {count} flashcards...")
     try:
-        cards = generate_flashcards(user_id, count=count)
+        session = get_session(user_id)
+        focus = session.get("study_focus", "")
+        cards = generate_flashcards(user_id, count=count, focus=focus)
         if not cards:
             await query.edit_message_text("❌ Couldn't generate flashcards. Upload more content.")
             return
-        session = get_session(user_id)
         session["flashcard_deck"] = cards
         session["flashcard_index"] = 0
         session["mode"] = "flashcards"
