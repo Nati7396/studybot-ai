@@ -1,0 +1,19 @@
+name: studybot-ai
+services:
+  - name: studybot
+    type: worker
+    git:
+      repository: github.com/Nati7396/studybot-ai
+      branch: main
+    build:
+      buildpack:
+        build_command: pip install -r requirements.txt
+    run:
+      command: python main.py
+    env:
+      - name: TELEGRAM_BOT_TOKEN
+        value: ""
+      - name: GEMINI_API_KEY
+        value: ""
+    instance_types:
+      - type: free
