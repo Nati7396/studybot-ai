@@ -1,16 +1,19 @@
 import logging
 import os
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 from bot.services.vector_service import has_documents, get_all_chunks
 from bot.services.ai_service import (
     generate_summary, generate_questions, generate_short_notes,
     generate_mock_exam, generate_important_concepts, predict_exam_questions,
-    generate_one_night_summary, explain_concept, analyze_exam_style
+    generate_one_night_summary, explain_concept, analyze_exam_style,
+    _rate_limited
 )
 from bot.services.webapp_service import save_webapp_data
 from bot.utils.helpers import chunk_message
 from bot.database.db import get_user_documents
+from bot.config import GEMINI_API_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -37,27 +40,52 @@ async def _check_docs(update: Update, user_id: int) -> bool:
 async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     docs = get_user_documents(user_id)
+    chunks = get_all_chunks(user_id) if docs else []
 
+    # --- AI Key Status ---
+    now = time.time()
+    key_lines = []
+    total_keys = len(GEMINI_API_KEYS)
+    working_keys = 0
+    from bot.services.ai_service import MODEL_PRIORITY
+    for i in range(total_keys):
+        all_limited = all(
+            now < _rate_limited.get((i, m), 0) for m in MODEL_PRIORITY
+        )
+        if all_limited:
+            soonest = min(_rate_limited.get((i, m), 0) for m in MODEL_PRIORITY)
+            mins = int((soonest - now) // 60)
+            key_lines.append(f"🔴 Key #{i+1} — rate-limited (~{mins}m left)")
+        else:
+            working_keys += 1
+            key_lines.append(f"🟢 Key #{i+1} — active (1,500 req/day)")
+
+    ai_status = "\n".join(key_lines)
+    ai_summary = f"✅ {working_keys}/{total_keys} keys working" if working_keys else f"⚠️ All {total_keys} keys rate-limited"
+
+    # --- Files ---
     if not docs:
-        await update.message.reply_text(_no_docs_msg())
-        return
-
-    chunks = get_all_chunks(user_id)
-    doc_list = "\n".join([
-        f"• {d['original_name']} ({d['page_count']} pages)"
-        for d in docs
-    ])
+        files_section = "📭 No files uploaded yet — send a file or use /upload"
+    else:
+        doc_list = "\n".join([
+            f"• {d['original_name']} ({d['page_count']} pages)"
+            for d in docs
+        ])
+        files_section = f"{doc_list}\n\n📊 {len(docs)} file(s) | 🧩 {len(chunks)} study chunks"
 
     keyboard = []
     if WEBAPP_URL:
         keyboard = [[InlineKeyboardButton("📖 Open Study App", web_app=WebAppInfo(url=WEBAPP_URL))]]
 
     await update.message.reply_text(
-        f"📚 *Your Study Materials*\n\n"
-        f"{doc_list}\n\n"
-        f"📊 Total files: {len(docs)}\n"
-        f"🧩 Study chunks indexed: {len(chunks)}\n\n"
-        f"Use /summary, /questions, /quiz or /mockexam to study!",
+        f"📡 *Bot Status*\n\n"
+        f"*🤖 AI Keys ({ai_summary})*\n"
+        f"{ai_status}\n\n"
+        f"💡 Add more keys as `GEMINI_API_KEY_4`, `GEMINI_API_KEY_5` etc.\n"
+        f"Each key = +1,500 free requests/day\n\n"
+        f"─────────────────\n"
+        f"*📚 Your Study Files*\n"
+        f"{files_section}",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
