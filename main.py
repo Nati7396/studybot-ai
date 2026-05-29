@@ -29,7 +29,7 @@ from bot.handlers.start import start_handler, help_handler
 from bot.handlers.upload import upload_command, document_handler
 from bot.handlers.focus import (
     focus_full_callback, focus_specific_callback,
-    focus_text_handler, focus_command
+    focus_text_handler, focus_command, menu_action_callback
 )
 from bot.handlers.study import (
     status_handler, summary_handler, questions_handler, questions_count_callback,
@@ -84,6 +84,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(focus_full_callback, pattern="^focus_full$"))
     app.add_handler(CallbackQueryHandler(focus_specific_callback, pattern="^focus_specific$"))
+    app.add_handler(CallbackQueryHandler(menu_action_callback, pattern="^menu_"))
     app.add_handler(CallbackQueryHandler(quiz_start_callback, pattern="^quiz_start_"))
     app.add_handler(CallbackQueryHandler(quiz_retry_callback, pattern="^quiz_retry$|^quiz_go_flash$"))
     app.add_handler(CallbackQueryHandler(flashcard_start_callback, pattern="^fc_start_"))
