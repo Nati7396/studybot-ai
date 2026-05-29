@@ -1,6 +1,6 @@
 import os
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from bot.config import MAX_FILE_SIZE_MB, SUPPORTED_EXTENSIONS
 from bot.database.db import upsert_user, add_document
@@ -10,7 +10,6 @@ from bot.services.vector_service import add_chunks_to_index
 logger = logging.getLogger(__name__)
 
 MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-
 SUPPORTED_DISPLAY = "PDF, PPTX, DOCX, TXT"
 
 TYPE_EMOJI = {
@@ -131,16 +130,16 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await status_msg.edit_text(
             f"✅ *{file_name}* processed!\n\n"
-            f"{emoji} Type: {type_label}\n"
-            f"📄 {pages_label}\n"
-            f"📝 Text extracted: {len(text):,} characters\n"
-            f"🧩 Study chunks: {len(chunks)}\n\n"
-            f"Ready! Use:\n"
-            f"/summary — Get a summary\n"
-            f"/questions — Generate practice questions\n"
-            f"/quiz — Start a quiz\n"
-            f"/mockexam — Create a mock exam",
-            parse_mode="Markdown"
+            f"{emoji} {pages_label} • {len(chunks)} study chunks indexed\n\n"
+            f"📌 *Do you want to study the full module or focus on specific chapters/sections?*\n\n"
+            f"Choose below — this applies to all commands (summary, quiz, questions, exams).",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📚 Full Module", callback_data="focus_full"),
+                    InlineKeyboardButton("🎯 Specific Section", callback_data="focus_specific"),
+                ]
+            ])
         )
 
     except Exception as e:
