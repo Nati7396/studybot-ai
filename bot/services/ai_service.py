@@ -8,8 +8,6 @@ from bot.services.vector_service import search_chunks, get_all_chunks
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
-# Model priority: gemini-1.5-flash = 1500 req/day FREE, 2.0-flash = 1500/day too
-# gemini-2.5-flash only has 20/day on free tier — use as last resort
 MODEL_PRIORITY = [
     "gemini-1.5-flash",
     "gemini-2.0-flash",
@@ -17,39 +15,10 @@ MODEL_PRIORITY = [
     "gemini-2.5-flash",
 ]
 
-# Track which (key_index, model) combos are rate-limited and when they reset
 _rate_limited: dict[tuple[int, str], float] = {}
 
 
-def _get_working_model():
-    """Return a working GenerativeModel, rotating keys and models on 429."""
-    now = time.time()
-    keys = GEMINI_API_KEYS
-    if not keys:
-        raise RuntimeError("No GEMINI_API_KEY configured. Add one in Replit Secrets.")
-
-    for model_name in MODEL_PRIORITY:
-        for key_idx, api_key in enumerate(keys):
-            combo = (key_idx, model_name)
-            reset_at = _rate_limited.get(combo, 0)
-            if now < reset_at:
-                continue  # still rate-limited, skip
-            genai.configure(api_key=api_key)
-            logger.debug(f"Using key #{key_idx + 1} with {model_name}")
-            return genai.GenerativeModel(model_name), combo
-
-    # All combos rate-limited — find soonest reset
-    soonest = min(_rate_limited.values())
-    wait = max(0, soonest - now)
-    raise RuntimeError(
-        f"All API keys are currently rate-limited. "
-        f"Try again in {int(wait // 60)} min {int(wait % 60)} sec. "
-        f"Add more keys (GEMINI_API_KEY_2, GEMINI_API_KEY_3) to increase limits."
-    )
-
-
 def _generate(prompt: str) -> str:
-    """Generate content with automatic key/model rotation on 429 errors."""
     last_error = None
     now = time.time()
     keys = GEMINI_API_KEYS
@@ -67,7 +36,6 @@ def _generate(prompt: str) -> str:
             except Exception as e:
                 err_str = str(e)
                 if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
-                    # Mark this combo as rate-limited for 24 hours
                     _rate_limited[combo] = now + 86400
                     logger.warning(f"Key #{key_idx + 1} / {model_name} rate-limited, trying next...")
                     last_error = e
@@ -75,7 +43,6 @@ def _generate(prompt: str) -> str:
                 else:
                     raise e
 
-    # All exhausted
     key_count = len(keys)
     raise RuntimeError(
         f"⚠️ Daily AI limit reached across all {key_count} key(s).\n\n"
@@ -84,6 +51,18 @@ def _generate(prompt: str) -> str:
         f"(each gives +1,500 free requests/day)\n"
         f"• Get a free key at: https://aistudio.google.com/app/apikey\n"
         f"• Limits reset at midnight Pacific Time"
+    )
+
+
+def _focus_instruction(focus: str) -> str:
+    if not focus:
+        return ""
+    return (
+        f"\n\n⚠️ IMPORTANT FOCUS INSTRUCTION: The student has chosen to study ONLY the following section: "
+        f'"{focus}". '
+        f"You MUST focus EXCLUSIVELY on content related to {focus}. "
+        f"Ignore all other chapters, sections, or topics outside this scope. "
+        f"Every question, summary, note, or concept you generate must come ONLY from {focus}.\n"
     )
 
 
@@ -98,12 +77,13 @@ def _build_context(user_id: int, query: str = "", max_chars: int = 12000) -> str
     return context
 
 
-def generate_summary(user_id: int) -> str:
+def generate_summary(user_id: int, focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Please upload PDFs first with /upload."
+    focus_note = _focus_instruction(focus)
     prompt = f"""You are an expert study assistant. Based ONLY on the following study materials, create a comprehensive but concise summary.
-
+{focus_note}
 Structure your summary with:
 1. Main Topics Covered
 2. Key Concepts (bullet points)
@@ -122,15 +102,16 @@ Write clearly for a student preparing for exams. Be accurate and stick only to t
         return str(e)
 
 
-def generate_questions(user_id: int, count: int = 100) -> list[dict]:
+def generate_questions(user_id: int, count: int = 100, focus: str = "") -> list[dict]:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return []
+    focus_note = _focus_instruction(focus)
     prompt = f"""You are an expert exam paper setter. Based ONLY on the following study materials, generate exactly {count} practice questions.
-
+{focus_note}
 Rules:
 - Mix question types: MCQ (with 4 options), Short Answer, Long Answer, True/False
-- Cover ALL major topics
+- Cover ALL major topics in scope
 - Focus on frequently tested concepts
 - Mark difficulty: [Easy], [Medium], [Hard]
 - For MCQs, provide the correct answer
@@ -162,31 +143,33 @@ def parse_questions(text: str) -> list[dict]:
     return questions
 
 
-def generate_mock_exam(user_id: int, exam_type: str = "mid") -> str:
+def generate_mock_exam(user_id: int, exam_type: str = "mid", focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Upload PDFs first."
+    focus_note = _focus_instruction(focus)
     if exam_type == "mid":
-        structure = "3 sections: Section A (5 MCQs, 1 mark each), Section B (3 short questions, 5 marks each), Section C (1 long question, 10 marks)"
-        total = "35 marks, 1.5 hours"
+        structure = "Section B (3 short questions, 5 marks each), Section C (1 long question, 10 marks)"
+        total = "25 marks written section, 1.5 hours"
     else:
-        structure = "4 sections: Section A (10 MCQs, 1 mark each), Section B (4 short questions, 5 marks each), Section C (2 medium questions, 10 marks each), Section D (1 essay, 20 marks)"
-        total = "70 marks, 3 hours"
-    prompt = f"""You are setting a {exam_type.upper()} EXAM paper. Based ONLY on the study materials below, create a realistic exam paper.
-
+        structure = "Section B (4 short questions, 5 marks each), Section C (2 medium questions, 10 marks each), Section D (1 essay, 20 marks)"
+        total = "60 marks written section, 3 hours"
+    prompt = f"""You are setting a {exam_type.upper()} EXAM written section. Based ONLY on the study materials below, create the written exam questions.
+{focus_note}
 Structure: {structure}
 Total: {total}
 
 Rules:
 - Questions must come ONLY from the provided materials
-- Include clear marking scheme
+- Include clear marking scheme for each question
 - Write like a real university exam paper
 - Add exam header with: Subject, Time Allowed, Total Marks, Instructions
+- Do NOT include MCQ questions — those are handled separately
 
 Study Materials:
 {context}
 
-Generate the complete exam paper now:"""
+Generate the written exam questions now:"""
     try:
         return _generate(prompt)
     except Exception as e:
@@ -194,12 +177,13 @@ Generate the complete exam paper now:"""
         return str(e)
 
 
-def generate_short_notes(user_id: int) -> str:
+def generate_short_notes(user_id: int, focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Upload PDFs first."
+    focus_note = _focus_instruction(focus)
     prompt = f"""You are a student who creates the perfect short notes. Based ONLY on these study materials, create concise short notes perfect for last-minute revision.
-
+{focus_note}
 Format:
 - Use bullet points
 - Bold key terms (use **term**)
@@ -219,12 +203,13 @@ Create the short notes now — clear, scannable, exam-ready:"""
         return str(e)
 
 
-def generate_quiz_questions(user_id: int, count: int = 10) -> list[dict]:
+def generate_quiz_questions(user_id: int, count: int = 10, focus: str = "") -> list[dict]:
     context = _build_context(user_id, max_chars=10000)
     if not context:
         return []
+    focus_note = _focus_instruction(focus)
     prompt = f"""Generate exactly {count} quiz questions (MCQ format only) from this study material.
-
+{focus_note}
 Rules:
 - 4 options each (A, B, C, D)
 - Only ONE correct answer
@@ -274,12 +259,13 @@ def parse_quiz_questions(text: str) -> list[dict]:
     return questions
 
 
-def generate_flashcards(user_id: int, count: int = 20) -> list[dict]:
+def generate_flashcards(user_id: int, count: int = 20, focus: str = "") -> list[dict]:
     context = _build_context(user_id, max_chars=12000)
     if not context:
         return []
+    focus_note = _focus_instruction(focus)
     prompt = f"""Create {count} flashcards from this study material. Each flashcard has a FRONT (question/term) and BACK (answer/definition).
-
+{focus_note}
 Focus on: key terms, definitions, important concepts, formulas, dates, and facts.
 Based ONLY on the provided material.
 
@@ -315,12 +301,13 @@ def parse_flashcards(text: str) -> list[dict]:
     return cards
 
 
-def generate_important_concepts(user_id: int) -> str:
+def generate_important_concepts(user_id: int, focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Upload PDFs first."
+    focus_note = _focus_instruction(focus)
     prompt = f"""You are an expert exam coach. Analyze these study materials and identify the most important, exam-worthy concepts.
-
+{focus_note}
 Provide:
 1. TOP 10 MOST IMPORTANT CONCEPTS (with brief explanation each)
 2. REPEATED THEMES (concepts that appear multiple times — likely exam topics)
@@ -339,12 +326,13 @@ Study Materials:
         return str(e)
 
 
-def predict_exam_questions(user_id: int) -> str:
+def predict_exam_questions(user_id: int, focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Upload PDFs first."
-    prompt = f"""You are an experienced professor who knows what comes in exams. Based on these study materials (which include previous exam papers, notes, and course materials), predict the most likely exam questions.
-
+    focus_note = _focus_instruction(focus)
+    prompt = f"""You are an experienced professor who knows what comes in exams. Based on these study materials, predict the most likely exam questions.
+{focus_note}
 Provide:
 1. TOP 5 VERY LIKELY QUESTIONS (almost certain to appear)
 2. NEXT 10 PROBABLE QUESTIONS (good chance of appearing)
@@ -363,12 +351,13 @@ Study Materials:
         return str(e)
 
 
-def generate_one_night_summary(user_id: int) -> str:
+def generate_one_night_summary(user_id: int, focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Upload PDFs first."
+    focus_note = _focus_instruction(focus)
     prompt = f"""It's the night before the exam. A student needs to cram everything essential in 2-3 hours. Create the PERFECT one-night-before summary.
-
+{focus_note}
 Rules:
 - Only the most important stuff
 - Super concise — every word counts
@@ -409,12 +398,13 @@ Keep it clear and simple."""
         return str(e)
 
 
-def analyze_exam_style(user_id: int) -> str:
+def analyze_exam_style(user_id: int, focus: str = "") -> str:
     context = _build_context(user_id, max_chars=14000)
     if not context:
         return "No study materials found. Upload PDFs first."
+    focus_note = _focus_instruction(focus)
     prompt = f"""You are analyzing a student's uploaded materials which include previous university exam papers and study notes.
-
+{focus_note}
 TASK: Study the EXACT style, format, and pattern of questions from the previous exams in these materials, then generate NEW questions in the EXACT same style.
 
 Step 1 — Analyze the exam style:
