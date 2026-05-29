@@ -1,19 +1,90 @@
 import logging
 import warnings
+import time
 import google.generativeai as genai
-from bot.config import GEMINI_API_KEY
+from bot.config import GEMINI_API_KEYS
 from bot.services.vector_service import search_chunks, get_all_chunks
 
 logger = logging.getLogger(__name__)
-
 warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
-genai.configure(api_key=GEMINI_API_KEY)
-MODEL_NAME = "gemini-2.5-flash"
+# Model priority: gemini-1.5-flash = 1500 req/day FREE, 2.0-flash = 1500/day too
+# gemini-2.5-flash only has 20/day on free tier — use as last resort
+MODEL_PRIORITY = [
+    "gemini-1.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-pro",
+    "gemini-2.5-flash",
+]
+
+# Track which (key_index, model) combos are rate-limited and when they reset
+_rate_limited: dict[tuple[int, str], float] = {}
 
 
-def _get_model():
-    return genai.GenerativeModel(MODEL_NAME)
+def _get_working_model():
+    """Return a working GenerativeModel, rotating keys and models on 429."""
+    now = time.time()
+    keys = GEMINI_API_KEYS
+    if not keys:
+        raise RuntimeError("No GEMINI_API_KEY configured. Add one in Replit Secrets.")
+
+    for model_name in MODEL_PRIORITY:
+        for key_idx, api_key in enumerate(keys):
+            combo = (key_idx, model_name)
+            reset_at = _rate_limited.get(combo, 0)
+            if now < reset_at:
+                continue  # still rate-limited, skip
+            genai.configure(api_key=api_key)
+            logger.debug(f"Using key #{key_idx + 1} with {model_name}")
+            return genai.GenerativeModel(model_name), combo
+
+    # All combos rate-limited — find soonest reset
+    soonest = min(_rate_limited.values())
+    wait = max(0, soonest - now)
+    raise RuntimeError(
+        f"All API keys are currently rate-limited. "
+        f"Try again in {int(wait // 60)} min {int(wait % 60)} sec. "
+        f"Add more keys (GEMINI_API_KEY_2, GEMINI_API_KEY_3) to increase limits."
+    )
+
+
+def _generate(prompt: str) -> str:
+    """Generate content with automatic key/model rotation on 429 errors."""
+    last_error = None
+    now = time.time()
+    keys = GEMINI_API_KEYS
+
+    for model_name in MODEL_PRIORITY:
+        for key_idx, api_key in enumerate(keys):
+            combo = (key_idx, model_name)
+            if now < _rate_limited.get(combo, 0):
+                continue
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel(model_name)
+                result = model.generate_content(prompt)
+                return result.text
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
+                    # Mark this combo as rate-limited for 24 hours
+                    _rate_limited[combo] = now + 86400
+                    logger.warning(f"Key #{key_idx + 1} / {model_name} rate-limited, trying next...")
+                    last_error = e
+                    continue
+                else:
+                    raise e
+
+    # All exhausted
+    key_count = len(keys)
+    raise RuntimeError(
+        f"⚠️ Daily AI limit reached across all {key_count} key(s).\n\n"
+        f"You can:\n"
+        f"• Add more keys: save GEMINI_API_KEY_2, GEMINI_API_KEY_3 in Replit Secrets "
+        f"(each gives +1,500 free requests/day)\n"
+        f"• Get a free key at: https://aistudio.google.com/app/apikey\n"
+        f"• Limits reset at midnight Pacific Time"
+    )
 
 
 def _build_context(user_id: int, query: str = "", max_chars: int = 12000) -> str:
@@ -45,10 +116,10 @@ Study Materials:
 
 Write clearly for a student preparing for exams. Be accurate and stick only to the provided content."""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"AI summary error: {e}")
-        return f"Error generating summary: {e}"
+        return str(e)
 
 
 def generate_questions(user_id: int, count: int = 100) -> list[dict]:
@@ -75,7 +146,7 @@ Q1. [Easy] Question text here?
 
 Generate all {count} questions now."""
     try:
-        return parse_questions(_get_model().generate_content(prompt).text)
+        return parse_questions(_generate(prompt))
     except Exception as e:
         logger.error(f"AI questions error: {e}")
         return []
@@ -117,10 +188,10 @@ Study Materials:
 
 Generate the complete exam paper now:"""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Mock exam error: {e}")
-        return f"Error generating mock exam: {e}"
+        return str(e)
 
 
 def generate_short_notes(user_id: int) -> str:
@@ -142,10 +213,10 @@ Study Materials:
 
 Create the short notes now — clear, scannable, exam-ready:"""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Short notes error: {e}")
-        return f"Error generating short notes: {e}"
+        return str(e)
 
 
 def generate_quiz_questions(user_id: int, count: int = 10) -> list[dict]:
@@ -174,7 +245,7 @@ ANSWER: [A/B/C/D]
 EXPLANATION: [one sentence explanation]
 ---"""
     try:
-        return parse_quiz_questions(_get_model().generate_content(prompt).text)
+        return parse_quiz_questions(_generate(prompt))
     except Exception as e:
         logger.error(f"Quiz error: {e}")
         return []
@@ -222,7 +293,7 @@ Study Materials:
 
 Generate {count} flashcards now:"""
     try:
-        return parse_flashcards(_get_model().generate_content(prompt).text)
+        return parse_flashcards(_generate(prompt))
     except Exception as e:
         logger.error(f"Flashcard error: {e}")
         return []
@@ -262,10 +333,10 @@ Base your analysis ONLY on the provided materials.
 Study Materials:
 {context}"""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Important concepts error: {e}")
-        return f"Error: {e}"
+        return str(e)
 
 
 def predict_exam_questions(user_id: int) -> str:
@@ -286,10 +357,10 @@ Be specific — name actual concepts, not vague topics.
 Study Materials:
 {context}"""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Prediction error: {e}")
-        return f"Error: {e}"
+        return str(e)
 
 
 def generate_one_night_summary(user_id: int) -> str:
@@ -310,10 +381,10 @@ Study Materials:
 
 Create the emergency study guide:"""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"One-night summary error: {e}")
-        return f"Error: {e}"
+        return str(e)
 
 
 def explain_concept(user_id: int, concept: str) -> str:
@@ -332,10 +403,10 @@ Explanation format:
 
 Keep it clear and simple."""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Explain error: {e}")
-        return f"Error: {e}"
+        return str(e)
 
 
 def analyze_exam_style(user_id: int) -> str:
@@ -370,7 +441,7 @@ Output format:
 ## 30 New Exam-Style Questions
 [Questions that exactly match the university's style]"""
     try:
-        return _get_model().generate_content(prompt).text
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Exam style error: {e}")
-        return f"Error: {e}"
+        return str(e)
